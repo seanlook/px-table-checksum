@@ -4,7 +4,7 @@ import MySQLdb
 from MySQLdb.constants import FIELD_TYPE
 from MySQLdb.converters import conversions
 from zlib import crc32
-from cs_settings_BASE import DB_SOURCE, DB_TARGET, TABLES_CHECK, DB_ID_CS
+from settings_cs_tables import DB_SOURCE, DB_TARGET, TABLES_CHECK, DB_ID_CS
 import threading
 import sys
 import time
@@ -323,30 +323,6 @@ class CalcTbl(object):
             # 已完成所有chunk，或者有异常
             return -1, -1
 
-    def crc32_test(self, table_name):
-        cur = self.db_conn.cursor()
-        sql_row = "select f_log_id,f_content from " + table_name + " where f_log_id=772713468"
-        cur.execute(sql_row)
-        res = cur.fetchall()
-        #print res
-
-        cur.close()
-
-        return res[0]
-
-    def del_old_checksum(self, table_name):
-        cur = self.db_conn_cs.cursor()
-        print tuple(table_name.split('.'))
-        sql_del = "delete from t_checksum where f_schema_name='%s' and f_table_name='%s'" % \
-                  tuple(table_name.split('.'))
-
-        print sql_del
-        cur.execute(sql_del)
-
-        cur.close()
-
-        return 1
-
     def write_output(self, *res_cs_cols):
         conn = self.db_conn_cs
 
@@ -355,7 +331,7 @@ class CalcTbl(object):
 
             sqlstr = "insert into t_checksum(f_dbid,f_table_name,f_chunk_no,f_schema_name,f_min_id,f_max_id,f_chunk_crc32) " + \
                      "values(%s,%s,%s,%s,%s,%s,%s)"
-            param = res_cs_cols #(dbid, chunk_no, schema_name, table_name, max_id, chunk_crc32)
+            param = res_cs_cols  # (dbid, chunk_no, schema_name, table_name, max_id, chunk_crc32)
 
             cur.execute(sqlstr, param)
             conn.commit()
@@ -423,7 +399,6 @@ class CheckSum(object):
         cur.execute(sqlstr, param)
         cur.close()
 
-
     # 在源source实例上执行检查
     def do_checksum(self):
 
@@ -435,9 +410,6 @@ class CheckSum(object):
         mycheck = CalcTbl(self.dbconn, self.dbconn_checksum, self.dbconn_info)
 
         param_num, sql_chunkraw = mycheck.make_chunk_sql(dt_name)
-
-        # mycheck.del_old_checksum(dt_name)
-
         print "Caculating checksums: ", self.dbid, dt_name
 
         start_key = "-".join(['0'] * param_num)
@@ -559,8 +531,13 @@ class Compare(object):
 
                 if RUN_DATAFIX:
                     print "-" * 80
-                    print "【注意】正在目标库(%s:%s)进行数据修复表(%s)" % (DB_TARGET['db_host'], DB_TARGET['db_port'], self.st_name)
-                    self.run_fixsql(fixfile)
+                    run_confirm = str(raw_input("Run data fix <%s> in target DB <%s %s> confirm [N/y]:"
+                                                % (fixfile, DB_TARGET['db_host'], DB_TARGET['db_port'])))
+                    if run_confirm.lower() in ('y', 'yes'):
+                        print "正在目标库(%s:%s)进行数据修复表(%s)" % (DB_TARGET['db_host'], DB_TARGET['db_port'], self.st_name)
+                        self.run_fixsql(fixfile)
+                    else:
+                        print "没有执行目标库数据修复"
 
         else:
             cur = conn.cursor()
@@ -744,8 +721,6 @@ class myThread(threading.Thread):
         checksum = CheckSum(st_name, DB_CHECKSUM, self.dbconn_info)
         checksum.do_checksum()
 
-        # do_checksum(self.schema_name, self.table_name, **self.dbconn_info)
-
         print "Checksum thread ended for table: %s (%s) " % (st_name, dbid)
 
 
@@ -781,6 +756,3 @@ if __name__ == '__main__':
 
                 print ""
                 print "#" * 80
-
-
-    # do_checksum(st_name['schema'], st_name['tables'][0])

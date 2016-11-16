@@ -1,5 +1,5 @@
 #coding:utf-8
-from cs_settings_BASE import DB_SOURCE, DB_TARGET, TABLES_CHECK
+from settings_cs_tables import DB_SOURCE, DB_TARGET
 
 # sql队列 redis地址
 REDIS_INFO = "10.0.200.168:6379"
