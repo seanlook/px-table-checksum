@@ -1,4 +1,10 @@
 # -*- coding=utf-8 -*-
+#!/usr/bin/python
+"""
+Author:     seanlook
+Contact:    seanlook7@gmail http://seanlook.com
+Date:       2016-11-02 released
+"""
 
 import MySQLdb
 from MySQLdb.constants import FIELD_TYPE
@@ -13,15 +19,22 @@ from hotqueue import HotQueue
 from settings_checksum import REDIS_INFO, DB_CHECKSUM, CALC_CRC32_DB, REDIS_QUEUE_CNT, REDIS_POOL_CNT, CHUNK_SIZE
 from settings_checksum import GEN_DATAFIX, RUN_DATAFIX, DO_COMPARE
 
+
+# 数据库的字符集类型，映射到python的类型。
 CHARSET_MAPPING = {"latin1": "latin-1",
                    "utf8": "utf-8",
                    "utf8mb4": "utf-8"}
 
+# 要检查的比数量，用于通知消费队列什么时候结束
 TABLES_CHECK_COUNT = 0
 for t in TABLES_CHECK.values():
     TABLES_CHECK_COUNT += len(t)
 
-
+"""
+redis队列工具类
+in_queues是源数据库写队列的客户端连接池。使用时随机获取一个
+outcheck是目标库线程消费检查sql队列。注意不要与python原生Queue混淆
+"""
 class QueueHelper(object):
     def __init__(self, in_cnt, out_cnt):
         self.in_cnt = in_cnt
@@ -49,9 +62,12 @@ class QueueHelper(object):
     def destroy_queue(self, queue):
         queue.clear()
 
-queues = QueueHelper(REDIS_POOL_CNT, REDIS_QUEUE_CNT)
+queues = QueueHelper(REDIS_POOL_CNT， REDIS_QUEUE_CNT)
 
-
+"""
+建立数据库连接方法
+注意数据库里日期0000-00-00使用MySQLdb取出后为None（不知道咋想的），所以连接时使用conv重写了字段映射类型（当做字符串）
+"""
 def get_dbconn(**dbconn_info):
     db_host = dbconn_info['db_host']
     db_user = dbconn_info['db_user']
@@ -81,7 +97,9 @@ def get_dbconn(**dbconn_info):
 
     return conn
 
-
+"""
+处理表的核心类，批次计算源库表的checksum结果，存入t_checksum表
+"""
 class CalcTbl(object):
     def __init__(self, db_conn, db_conn_checksum=None, dbconn_info={}):
         self.db_conn = db_conn
@@ -96,6 +114,7 @@ class CalcTbl(object):
         finally:
             print "db conection closed."
 
+    # 获取表上的主键或唯一键：show index from t1
     def get_uniq_key(self, table_name):
         cur = self.db_conn.cursor()
         sql_keys = "show index from " + table_name + " where Key_name='PRIMARY'"
@@ -126,6 +145,7 @@ class CalcTbl(object):
 
         return t_uniq
 
+    # 获取表上的所有字段名，拼接查询、修复sql都会用到
     def get_cols(self, table_name):
         global TABLES_CHECK_COUNT
         ts, tn = table_name.split(".")
@@ -215,6 +235,7 @@ class CalcTbl(object):
 
         return chunk_crc32_rows
 
+    # 在比较具体不同行用到，为了简化代码将数字变成字符串来拼接。NULL也要做特殊替换
     def conv_tuple_encode(self, tuple_str=0, *row):
         row_str = ""
         for rst in row[0]:
@@ -240,6 +261,7 @@ class CalcTbl(object):
 
         return row_str
 
+    # 生剩源库检查chunk的sql，起始点用%s代替
     def make_chunk_sql(self, table_name, chunk_size=2000):
         t_cols = self.get_cols(table_name)
         t_uniq_keys = self.get_uniq_key(table_name)
@@ -248,6 +270,7 @@ class CalcTbl(object):
         t_uniq_key_order = " asc,".join(t_uniq_keys) + " asc"
         # t_uniq_start_pair = dict(zip(t_uniq_keys, start_key))
 
+        # 组合主键或索引，参考pt-table-checksum的语句
         t_uniq_filter_list = []
         for wf_cnt in range(0, len(t_uniq_keys)):
             t_uniq_filter_or = ("(" + t_uniq_keys[wf_cnt] + " > %s ")
@@ -259,6 +282,7 @@ class CalcTbl(object):
 
         t_uniq_filter = " OR ".join(t_uniq_filter_list)
 
+        # 根据是否在db计算，生产不同的sql，所以在select_chunk反复也要区分处理
         if CALC_CRC32_DB:
             print "Caculate crc32 in db instead of program.(save net traffic, but make more db load)"
             sql_plain_rows = "select concat_ws('-'," + t_uniq_key_com + "), CRC32( concat_ws('#', " + t_cols + ") ) from " + table_name + \
@@ -272,7 +296,7 @@ class CalcTbl(object):
         return len(t_uniq_keys), sql_plain_rows
 
     # 计算一个chunk的crc32值
-    # 输入拼装好的sql，传入界定chunk的参数，out_rows用在后面找到具体行的不同
+    # 输入拼装好的sql，传入界定chunk的参数  # out_rows用在后面找到具体行的不同 已用 get_chunk_rows方法单独处理，废
     def select_chunk(self, sql_chunkraw, start_key, out_rows=0):
         cur = self.db_conn.cursor()
 
@@ -295,7 +319,7 @@ class CalcTbl(object):
         if rows_count > 0:
             res = cur.fetchall()
 
-            max_id = res[-1][0]
+            max_id = res[-1][0]  # 该chunk最后一行，即范围上限，用于下个chunk起点
             rows_crc32 = ""
             rows_id = ""
 
@@ -306,13 +330,12 @@ class CalcTbl(object):
                     rows_crc32 += str(row[1]) + ","
                 else:
                     #print row
-                    #print self.result_charset
                     if isinstance(row[1], unicode):
                         row_str = row[1].encode(self.result_charset)
                     else:
                         row_str = row[1]
                     # print rows_id, row_str
-                    rows_crc32 += str(crc32(row_str)) + ","
+                    rows_crc32 += str(crc32(row_str)) + ","  # python计算每行的crc32
 
             # print max_id, rows_crc32
             if out_rows == 1:
@@ -323,6 +346,7 @@ class CalcTbl(object):
             # 已完成所有chunk，或者有异常
             return -1, -1
 
+    # 计算结果写入checksum结果表
     def write_output(self, *res_cs_cols):
         conn = self.db_conn_cs
 
@@ -344,6 +368,7 @@ class CalcTbl(object):
             cur.close()
 
 
+# 源库、目标库检查一致性开始的入口
 class CheckSum(object):
     def __init__(self, st_name, dbconn_cs_info, dbconn_info=None):
         try:
@@ -370,6 +395,7 @@ class CheckSum(object):
         finally:
             print "db conection closed."
 
+    # 开始前清除老数据
     def before_checksum(self):
         cur = self.dbconn_checksum.cursor()
 
@@ -474,6 +500,7 @@ class CheckSum(object):
                     print "Error %d: %s" % (e.args[0], e.args[1])
 
 
+# 从t_checksum表里拿数据比较，修复。针对单个表
 class Compare(object):
     def __init__(self, st_name, **dbconn_cs_info):
         self.dbconn_checksum = get_dbconn(**dbconn_cs_info)
@@ -551,6 +578,8 @@ class Compare(object):
 
         conn.close()
 
+    # 根据chunk号，去源库和目标库获取不一致的具体行
+    # 每个chunk起点一定是相同的，但最大的记录不一定，所以这里要取得源库和目标库改chunk最后一行的较大的那条，来作为比较的范围
     def get_diffs(self, schema_table_name, *diff_chunk):
         #my_conv = {MySQLdb.constants.FIELD_TYPE.LONG: str}
         print "去源库和目标库获取chunk[%d]不一致行：" % diff_chunk[0]
@@ -581,6 +610,7 @@ class Compare(object):
         rows_deleted = set(rows_deleted2) - rows_updated
 
         # fix_dict = {"DELETE": rows_deleted, "INSERT_UPDATE": list(rows_inserted)}
+        # 使用replace into语法处理 insert,update两种dml
         data_fix = list(rows_deleted), rows_inserted
 
         if len(rows_inserted) + len(rows_deleted) == 0:
@@ -592,6 +622,7 @@ class Compare(object):
         # print "data_fix: ", data_fix
         return data_fix
 
+    # 获取较大的主键（数字主键和字符主键比较方法不一样）
     def get_realmax_id(self, max_id1, max_id2):
 
         if max_id1 == max_id2:
@@ -679,6 +710,7 @@ class Compare(object):
 
         return datafix_file
 
+    # 在目标库运行修复sql
     def run_fixsql(self, fixfile):
         dbconn = get_dbconn(**DB_TARGET)
         cur = dbconn.cursor()
@@ -692,7 +724,7 @@ class Compare(object):
 
         f.close()
 
-
+# 目标库消费 检查sql 的多线程
 class outThread(threading.Thread):
     def __init__(self, sql_queue):
         threading.Thread.__init__(self)
@@ -703,7 +735,7 @@ class outThread(threading.Thread):
         outcheck = CheckSum(st_name='', dbconn_cs_info=DB_CHECKSUM, dbconn_info=DB_TARGET)
         outcheck.do_checksum_target(self.sql_queue)
 
-
+## 源库根据表数据量同时检查的多线程
 class myThread(threading.Thread):
     def __init__(self, threadID, schema_name, table_name, **dbconn_info):
         threading.Thread.__init__(self)

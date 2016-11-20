@@ -17,7 +17,7 @@ CALC_CRC32_DB = True if DB_SOURCE['db_charset'] == DB_TARGET['db_charset'] else 
 
 # REDIS队列生产端连接池连接数量，REDIS sql队列数量
 # 根据每次比较的表数量调整。2,2 适合3-5个表同时比较
-REDIS_POOL_CNT, REDIS_QUEUE_CNT = (2, 2)
+REDIS_POOL_CNT， REDIS_QUEUE_CNT = (2, 2)
 
 # 每次从源库取得计算数据行的大小
 CHUNK_SIZE = 2000
