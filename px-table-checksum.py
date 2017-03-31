@@ -129,6 +129,7 @@ class CalcTbl(object):
         cur.close()
 
         if len(res) == 0:
+            global TABLES_CHECK_COUNT
             sql_keys = "show index from " + table_name + " where Non_unique=0"
             cur = self.db_conn.cursor()
             cur.execute(sql_keys)
@@ -137,6 +138,7 @@ class CalcTbl(object):
 
             if len(res) == 0:
                 print "Warning: No PRIMARY or UNIQUE key found in ", table_name
+                TABLES_CHECK_COUNT -= 1
                 sys.exit(-1)
 
         t_uniq = [col[4] for col in res]
@@ -493,7 +495,7 @@ class CheckSum(object):
                     max_id, chunk_crc32 = tbl_check.select_chunk(item[1], start_key)
 
                     res_cs_cols = (dbid, table_name, chunk_no, schema_name, start_key, max_id, chunk_crc32)
-                    print "TARGET:", res_cs_cols
+                    # print "TARGET:", res_cs_cols
                     tbl_check.write_output(*res_cs_cols)
 
                 except MySQLdb.Error, e:
